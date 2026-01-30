@@ -12,6 +12,68 @@ import { Bookmark, Check, Copy, ExternalLink, Share2, ThumbsDown, ThumbsUp, Vide
 import * as React from "react"
 import { renderMarkdownWithLinks, plainTextFromMarkdown } from "@/lib/markdown-renderer"
 
+/**
+ * Renders markdown with interactive citation links
+ */
+function renderMarkdownWithClickableCitations(text, getCitationUrl, getCitationTitle, loadingIndices, setLoadingIndices) {
+  if (!text || typeof text !== 'string') return ''
+
+  let html = text
+  
+  // Escape existing HTML
+  html = html.replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+  // Strip markdown citation links from headings
+  html = html.replace(/^(#+\s+[^\n]+?)\s*\[\d+\s*\([^\)]+\)\]\([^\)]+\)(?:\s*\[\d+\s*\([^\)]+\)\]\([^\)]+\))*/gm, '$1')
+  
+  // Convert markdown headings to HTML
+  html = html.replace(/^# ([^\n]+)/gm, '<h1 class="text-2xl font-bold mt-6 mb-3">$1</h1>')
+  html = html.replace(/^## ([^\n]+)/gm, '<h2 class="text-xl font-bold mt-5 mb-3">$1</h2>')
+  html = html.replace(/^### ([^\n]+)/gm, '<h3 class="text-lg font-bold mt-4 mb-2">$1</h3>')
+
+  // Convert bold and italic
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold">$1</strong>')
+  html = html.replace(/__([^_]+)__/g, '<strong class="font-bold">$1</strong>')
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em class="italic">$1</em>')
+  html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em class="italic">$1</em>')
+
+  // Convert lists
+  html = html.replace(/^[*-] ([^\n]+)/gm, '<li>$1</li>')
+  html = html.replace(/(<li>.*<\/li>)/s, function(match) {
+    const items = match.match(/<li>.*?<\/li>/g)
+    if (items) {
+      return '<ul class="list-disc pl-5 space-y-0.5">' + items.join('') + '</ul>'
+    }
+    return match
+  })
+
+  // Convert citation links with timestamps - store as data attributes for React rendering
+  html = html.replace(/\[(\d+)\s+\(([^\)]+)\)\]\(([^\)]+)\)/g, '<citation-link data-id="$1" data-time="$2" data-url="$3" class="citation-badge">[$1 - $2]</citation-link>')
+
+  // Convert remaining citation links [text](url) 
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
+
+  // Convert remaining citations [1], [2] etc
+  html = html.replace(/\[(\d+)\]/g, '<sup class="text-blue-600 dark:text-blue-400 font-semibold cursor-help">[$1]</sup>')
+
+  // Convert line breaks and paragraphs
+  html = html.replace(/\n\n+/g, '</p><p class="mb-3">')
+  
+  const paragraphs = html.split('</p><p class="mb-3">')
+  html = paragraphs.map(p => {
+    if (!p.includes('<h') && !p.includes('<ul') && p.trim() !== '') {
+      return `<p class="mb-3">${p}</p>`
+    }
+    return p
+  }).join('')
+
+  return html
+}
+
 export function EnhancedChatResponse({
   message,
   experts = [],
@@ -58,13 +120,32 @@ export function EnhancedChatResponse({
 
   // Build a map of citation_id to video info for quick lookup
   const getCitationUrl = (citationId) => {
+    // Try citationDetails first
     const detail = citationDetails[citationId]
     if (detail && detail.url) return detail.url
+    
+    // Try videos array by index
     const video = videos[citationId - 1]
-    if (video) return video.youtubeUrl
-    if (videoResources.length > 0) {
-      return videoResources[0].url || `https://www.youtube.com/watch?v=${videoResources[0].video_id}`
+    if (video) {
+      if (video.youtubeUrl) return video.youtubeUrl
+      if (video.video_id) return `https://www.youtube.com/watch?v=${video.video_id}`
+      if (video.url) return video.url
     }
+    
+    // Try videoResources array
+    if (videoResources && videoResources.length > 0) {
+      const resource = videoResources[citationId - 1]
+      if (resource) {
+        if (resource.url) return resource.url
+        if (resource.video_id) return `https://www.youtube.com/watch?v=${resource.video_id}`
+      }
+      // Fallback to first resource
+      if (videoResources[0]) {
+        if (videoResources[0].url) return videoResources[0].url
+        if (videoResources[0].video_id) return `https://www.youtube.com/watch?v=${videoResources[0].video_id}`
+      }
+    }
+    
     return '#'
   }
 
@@ -72,8 +153,12 @@ export function EnhancedChatResponse({
     const detail = citationDetails[citationId]
     if (detail && detail.title) return detail.title
     const video = videos[citationId - 1]
-    if (video) return video.videoTitle
-    if (videoResources.length > 0) return videoResources[0].title || 'Video Source'
+    if (video) return video.videoTitle || video.title
+    if (videoResources.length > 0) {
+      const resource = videoResources[citationId - 1]
+      if (resource && resource.title) return resource.title
+      return videoResources[0].title || 'Video Source'
+    }
     return 'Source'
   }
 
@@ -242,10 +327,58 @@ export function EnhancedChatResponse({
             {/* Main Response Content */}
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
               {hasAnswerText ? (
-                <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none">
-                  <div 
-                    dangerouslySetInnerHTML={{ __html: renderMarkdownWithLinks(answerText) }} 
-                  />
+                <div 
+                  className="prose prose-sm sm:prose-base dark:prose-invert max-w-none"
+                  onClick={(e) => {
+                    // Handle citation clicks
+                    const target = e.target
+                    if (target.classList.contains('citation-link-badge')) {
+                      e.preventDefault()
+                      const citationId = parseInt(target.getAttribute('data-citation-id'))
+                      const citationUrl = getCitationUrl(citationId)
+                      if (citationUrl !== '#') {
+                        setLoadingIndices((prev) => new Set(prev).add(citationId))
+                        setTimeout(() => {
+                          setLoadingIndices((prev) => {
+                            const newSet = new Set(prev)
+                            newSet.delete(citationId)
+                            return newSet
+                          })
+                          window.open(citationUrl, "_blank")
+                        }, 300)
+                      }
+                    }
+                  }}
+                >
+                  <style>{`
+                    .citation-link-badge {
+                      display: inline-block;
+                      margin-left: 0.25rem;
+                      padding: 0.125rem 0.5rem;
+                      border-radius: 0.375rem;
+                      background-color: rgb(239, 246, 255);
+                      border: 1px solid rgb(191, 219, 254);
+                      font-size: 0.75rem;
+                      color: rgb(37, 99, 235);
+                      white-space: nowrap;
+                      cursor: pointer;
+                      transition: all 0.2s ease;
+                    }
+                    .citation-link-badge:hover {
+                      background-color: rgb(219, 234, 254);
+                      border-color: rgb(147, 197, 253);
+                      text-decoration: underline;
+                    }
+                    .dark .citation-link-badge {
+                      background-color: rgb(30, 58, 138);
+                      border-color: rgb(30, 64, 175);
+                      color: rgb(147, 197, 253);
+                    }
+                    .dark .citation-link-badge:hover {
+                      background-color: rgb(37, 74, 206);
+                    }
+                  `}</style>
+                  <div dangerouslySetInnerHTML={{ __html: renderMarkdownWithLinks(answerText) }} />
                 </div>
               ) : hasStructuredContent ? (
                 <StructuredAnswerRenderer

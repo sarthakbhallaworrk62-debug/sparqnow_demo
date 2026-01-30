@@ -45,20 +45,20 @@ export function renderMarkdownWithLinks(text) {
   html = html.replace(/(<li>.*<\/li>)/s, function(match) {
     const items = match.match(/<li>.*?<\/li>/g)
     if (items) {
-      return '<ul class="list-disc list-inside space-y-1">' + items.join('') + '</ul>'
+      return '<ul class="list-disc pl-5 space-y-0.5">' + items.join('') + '</ul>'
     }
     return match
   })
 
-  // Convert citation links with timestamps: [number (timestamp)](url) to styled citation badges
-  // Format: [2 (0:00)](url) -> <span class="citation-badge">2 (0:00)</span>
-  html = html.replace(/\[(\d+)\s+\(([^\)]+)\)\]\([^\)]+\)/g, '<span class="inline-block ml-1 px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 whitespace-nowrap">[$1 · $2]</span>')
+  // Convert citation links with timestamps: [number (timestamp)](url) to styled clickable citation badges
+  // Format: [2 (0:00)](url) -> data attribute for component to handle
+  html = html.replace(/\[(\d+)\s+\(([^\)]+)\)\]\(([^\)]+)\)/g, '<span class="citation-link-badge" data-citation-id="$1" data-timestamp="$2">[$1 - $2]</span>')
 
   // Convert links: [text](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
 
-  // Convert remaining citations [1], [2] etc to superscript (keep them visible but styled)
-  html = html.replace(/\[(\d+)\]/g, '<sup class="text-blue-600 dark:text-blue-400 font-semibold cursor-help">[$1]</sup>')
+  // Convert remaining citations [1], [2] etc to spans with data attributes for component handling
+  html = html.replace(/\[(\d+)\]/g, '<span class="citation-link-badge" data-citation-id="$1">[$1]</span>')
 
   // Convert line breaks
   html = html.replace(/\n\n+/g, '</p><p class="mb-3">')

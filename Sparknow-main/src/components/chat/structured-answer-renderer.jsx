@@ -42,9 +42,9 @@ export function StructuredAnswerRenderer({ sections = [], renderText, answerText
             .filter(Boolean)
           if (listItems.length > 0) {
             blocks.push(
-              <ul key={`section-${sectionIndex}-list-${blocks.length}`} className="list-disc list-inside space-y-1">
+              <ul key={`section-${sectionIndex}-list-${blocks.length}`} className="list-disc pl-5 space-y-0.5 marker:mr-2">
                 {listItems.map((item, itemIndex) => (
-                  <li key={`section-${sectionIndex}-li-${itemIndex}`}>{renderContent(item)}</li>
+                  <li key={`section-${sectionIndex}-li-${itemIndex}`} className="ml-0">{renderContent(item)}</li>
                 ))}
               </ul>
             )
